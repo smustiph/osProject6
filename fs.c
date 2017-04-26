@@ -46,9 +46,51 @@ void fs_debug()
 	disk_read(0,block.data);
 
 	printf("superblock:\n");
-	printf("    %d blocks\n",block.super.nblocks);
-	printf("    %d inode blocks\n",block.super.ninodeblocks);
-	printf("    %d inodes\n",block.super.ninodes);
+	printf("\t%d blocks\n",block.super.nblocks);
+	printf("\t%d inode blocks\n",block.super.ninodeblocks);
+	printf("\t%d inodes\n",block.super.ninodes);
+
+	// Set to 1 because we already read the super block
+	int currblock;
+	for(currblock = 1; currblock < block.super.nblocks; currblock++){
+		// must check that data points to 4KB of memory
+		disk_read(currblock, block.data);
+		int currinode;
+		for(currinode = 0; currinode < INODES_PER_BLOCK; currinode++){
+			// check if the inode is actually created
+			if(block.inode[currinode].isvalid == 1){
+				printf("inode %d\n", currinode);
+				printf("\tsize: %d bytes\n", block.inode[currinode].size);
+				int size;
+				size = block.inode[currinode].size;
+				printf("\tdirect blocks: ");
+				int currinodeblock;
+				for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
+					if(block.inode[currinode].direct[currinodeblock] == 0){
+						continue;
+					}
+					printf("%d ", block.inode[currinode].direct[currinodeblock]);
+				}
+				printf("\n");
+				if(block.inode[currinode].indirect > 0){
+					printf("\tindirect block: %d\n", block.inode[currinode].indirect);
+					printf("\tindirect data blocks: ");
+					union fs_block indirectblock;
+					disk_read(block.inode[currinode].indirect, indirectblock.data);
+					int currpointer;
+					for(currpointer = 0; currpointer < POINTERS_PER_BLOCK; currpointer++){
+						if(indirectblock.pointers[currpointer] == 0){
+							continue;
+						}
+						printf("%d ", indirectblock.pointers[currpointer]);
+					}
+					printf("\n");
+				}
+			}
+
+		}
+
+	}
 }
 
 int fs_mount()
