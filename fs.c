@@ -1,4 +1,3 @@
-
 #include "fs.h"
 #include "disk.h"
 
@@ -8,10 +7,14 @@
 #include <errno.h>
 #include <unistd.h>
 
-#define FS_MAGIC           0xf0f03410
-#define INODES_PER_BLOCK   128
-#define POINTERS_PER_INODE 5
-#define POINTERS_PER_BLOCK 1024
+#define FS_MAGIC           0xf0f03410 // lets know that there is a file system
+#define INODES_PER_BLOCK   128 // inodes per block
+#define POINTERS_PER_INODE 5 // number of direct pointers in inode
+#define POINTERS_PER_BLOCK 1024 // number of pointers to be found in an indirect block
+
+// Globals
+int ismounted =  0;
+int *freeblockbitmap;
 
 struct fs_superblock {
 	int magic;
@@ -34,8 +37,32 @@ union fs_block {
 	char data[DISK_BLOCK_SIZE];
 };
 
+/*
+	Creates a new filesystem on the disk, destroying any data already present. 
+	Sets aside ten percent of the blocks for inodes, clears the inode table, and writes the superblock. 
+	Returns one on success, zero otherwise. 
+	Note that formatting a filesystem does not cause it to be mounted. 
+	Also, an attempt to format an already-mounted disk should do nothing and return failure.
+*/
 int fs_format()
 {
+	if(ismounted == 0){
+		int numBlocks = disk_size();
+		int percentage = numBlocks/10; 
+
+		union fs_block newBlock;
+
+		newBlock.super.magic = FS_MAGIC;
+		newBlock.super.nblocks = numBlocks;
+		newBlock.super.ninodeblocks = percentage;
+		newBlock.super.ninodes = percentage*INODES_PER_BLOCK;
+
+		// write the superblock to disk, will be the initial block
+		disk_write(0, newBlock.data);
+
+		// on success return 1
+		return 1;
+	}
 	return 0;
 }
 
@@ -95,6 +122,37 @@ void fs_debug()
 
 int fs_mount()
 {
+	union fs_block block;
+
+	disk_read(0, block.data);
+
+	// check if the filesystem is present
+	if(block.super.magic == FS_MAGIC){
+		freeblockbitmap = malloc(sizeof(int *)*block.super.ninodes);
+		// go through each inode block and check every inode 1 if in use 0 otherwise
+		// if data block is 0 then it is not being used, anything else and it is being used
+		int currblock;
+		for(currblock = 1; currblock < block.super.nblocks; currblock++){
+			disk_read(currblock, block.data);
+			int currinode;
+			for(currinode = 0; currinode < INODES_PER_BLOCK; currinode++){
+				// check if inode is actually created
+				if(block.inode[currinode].isvalid == 1){
+					int currinodeblock;
+					for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
+						// if the current data block is not being used 
+						if(block.inode[currinode].direct[currinodeblock] == 0){
+							freeblockbitmap[block.inode[currinode].direct[currinodeblock]] = 0;
+							continue;
+						}
+						freeblockbitmap[block.inode[currinode].direct[currinodeblock]] = 1;
+					}
+				}
+			}
+		}
+
+		return 1;
+	}
 	return 0;
 }
 
