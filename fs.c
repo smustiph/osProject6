@@ -14,11 +14,12 @@
 
 /*
 	Questions for Jermaine:
-	1. How do we test to make sure things are working the way we think they are, few examples
+	1. How do we test to make sure things are working the way we think they are, few examples, have him mess with it
 		- check debug, do we need a check to see if direct block array exists
 	2. Check over format: are we doing this right?
 		- think it works, run debug then format then debug again to check
 		- Specifically destroying all of the data
+		- run ./getfiles.sh to get the new disk images from the web
 	3. Check over mount:
 		- are we creating the free block bitmap correctly
 			1 for in use 0 for empty
@@ -80,7 +81,7 @@ int fs_format()
 					for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
 						oldBlock.inode[currinode].direct[currinodeblock] = 0;
 					}
-					// deleting indirect and indirect data blocks
+					// deleting indirect data blocks
 					if(oldBlock.inode[currinode].indirect > 0){
 						oldBlock.inode[currinode].indirect = 0;
 						union fs_block indirectblock;
@@ -89,7 +90,6 @@ int fs_format()
 						for(currpointer = 0; currpointer < POINTERS_PER_BLOCK; currpointer++){
 							indirectblock.pointers[currpointer] = 0;
 						}
-						printf("\n");
 					}
 				}
 				disk_write(currblock, oldBlock.data);
@@ -140,7 +140,7 @@ void fs_debug()
 			for(currinode = 1; currinode < INODES_PER_BLOCK; currinode++){
 				// check if the inode is actually created
 				if(block.inode[currinode].isvalid == 1){
-					printf("inode %d\n", currinode);
+					printf("inode: %d\n", currinode);
 					printf("\tsize: %d bytes\n", block.inode[currinode].size);
 					int size;
 					size = block.inode[currinode].size;
@@ -211,6 +211,7 @@ int fs_mount()
 	return 0;
 }
 
+// to run from here on out you must first mount the disk
 int fs_create()
 {
 	// check to see if it ismounted
@@ -239,8 +240,47 @@ int fs_create()
 	return 0;
 }
 
+
 int fs_delete( int inumber )
 {
+	if(ismounted == 1){
+		union fs_block block;
+		disk_read(0,block.data);
+		if(block.super.magic == FS_MAGIC){
+			int currblock;
+			for(currblock = 1; currblock < block.super.nblocks; currblock++){
+				disk_read(currblock, block.data);
+				int currinode;
+				for(currinode = 1; currinode < INODES_PER_BLOCK; currinode++){
+					// check if inumber is same as the given inode
+					if(currinode == inumber){
+						// check if valid 
+						if(block.inode[currinode].isvalid == 1){
+							block.inode[currinode].isvalid = 0;
+							int currinodeblock;
+							for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
+								block.inode[currinode].direct[currinodeblock] = 0; // free the direct block
+								freeblockbitmap[block.inode[currinode].direct[currinodeblock]] = 0; // free bitmap
+							}
+							// free the indirect blocks
+							// deleting indirect data blocks
+							if(block.inode[currinode].indirect > 0){
+								block.inode[currinode].indirect = 0;
+								union fs_block indirectblock;
+								disk_read(block.inode[currinode].indirect, indirectblock.data);
+								int currpointer;
+								for(currpointer = 0; currpointer < POINTERS_PER_BLOCK; currpointer++){
+									indirectblock.pointers[currpointer] = 0;
+								}
+							}
+						}
+					}
+				}
+				disk_write(currblock, block.data);
+				return 1;
+			}
+		}
+	}
 	// check to see if it ismounted
 	return 0;
 }
