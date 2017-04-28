@@ -288,11 +288,60 @@ int fs_delete( int inumber )
 int fs_getsize( int inumber )
 {
 	// check to if ismounted
+	if(ismounted == 1){
+		union fs_block block;
+		disk_read(0, block.data);
+		if(block.super.magic == FS_MAGIC){
+			int currblock;
+			for(currblock = 1; currblock < block.super.nblocks; currblock++){
+				disk_read(currblock, block.data);
+				int currinode;
+				for(currinode = 0; currinode < INODES_PER_BLOCK; currinode++){
+					// check that current inode numbeer is equal to our inumber
+					if(currinode == inumber){
+						if(block.inode[currinode].isvalid == 1){
+							return block.inode[currinode].size;
+						}
+					}
+				}
+			}
+		}
+	}
 	return -1;
 }
 
 int fs_read( int inumber, char *data, int length, int offset )
 {
+	int totbytes = 0;
+	if(ismounted == 1){
+		union fs_block block;
+		disk_read(0, block.data);
+		if(block.super.magic == FS_MAGIC){
+			int currblock;
+			for(currblock = 1; currblock < block.super.nblocks; currblock++){
+				disk_read(currblock, block.data);
+				int currinode;
+				for(currinode = 0; currinode < INODES_PER_BLOCK; currinode++){
+					if(currinode == inumber){
+						if(block.inode[currinode].isvalid == 1){
+							int currinodeblock;
+							for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
+								union fs_block bufferBlock;
+								disk_read(block.inode[currinode].direct[currinodeblock], bufferBlock.data);
+								int currbyte;
+								for(currbyte = offset; currbyte < 1000; currbyte++){
+									data[totbytes] = bufferBlock.data[currbyte];
+									totbytes+=1;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return totbytes;
+
+	}
 	return 0;
 }
 
