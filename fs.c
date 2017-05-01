@@ -312,8 +312,10 @@ int fs_getsize( int inumber )
 
 int fs_read( int inumber, char *data, int length, int offset )
 {
-	int totbytes = 0;
 	if(ismounted == 1){
+		int totbytes = offset;
+		int isIndirect = 0;
+		int numIndirectPointers;
 		union fs_block block;
 		disk_read(0, block.data);
 		if(block.super.magic == FS_MAGIC){
@@ -324,14 +326,59 @@ int fs_read( int inumber, char *data, int length, int offset )
 				for(currinode = 0; currinode < INODES_PER_BLOCK; currinode++){
 					if(currinode == inumber){
 						if(block.inode[currinode].isvalid == 1){
+							// Handle the Direct Pointers
+							int numDirectPointers = block.inode[currinode].size/4096 + 1;
+							if(numDirectPointers > 5){
+								numIndirectPointers = numDirectPointers-POINTERS_PER_INODE;
+								numDirectPointers = POINTERS_PER_INODE;
+								isIndirect = 1;
+							}
 							int currinodeblock;
 							for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
 								union fs_block bufferBlock;
 								disk_read(block.inode[currinode].direct[currinodeblock], bufferBlock.data);
+								if(length > totbytes){
+									if(block.inode[currinode].size < 4096){
+										strncpy(data, bufferBlock.data, block.inode[currinode].size);
+										return block.inode[currinode].size;
+									}
+									else if(currinodeblock == POINTERS_PER_INODE-1){
+										strncpy(data, bufferBlock.data, block.inode[currinode].size-4096); 
+										return block.inode[currinode].size-4096;
+									}
+									else{
+										strncpy(data, bufferBlock.data, 4096);
+										return 4096;
+									}
+								}
+								
 								int currbyte;
 								for(currbyte = offset; currbyte < 1000; currbyte++){
 									data[totbytes] = bufferBlock.data[currbyte];
 									totbytes+=1;
+								}
+							}
+							
+							
+							if(isIndirect == 1){
+								//printf("Is in indirect\n");
+								union fs_block indirectBufferBlock;
+								disk_read(block.inode[currinode].indirect, indirectBufferBlock.data);
+								int currpointer;
+								for(currpointer = 0; currpointer < numIndirectPointers; currpointer++){
+									union fs_block indirectBufferBlockData;
+									disk_read(indirectBufferBlock.pointers[currpointer], indirectBufferBlockData.data);
+
+									if(length > totbytes){
+										if(currinodeblock == numIndirectPointers-1){
+											strncpy(data, indirectBufferBlockData.data, block.inode[currinode].size-(POINTERS_PER_INODE*4096)-4096);
+											return block.inode[currinode].size-(POINTERS_PER_INODE*4096)-4096;
+										}
+										else{
+											strncpy(data, indirectBufferBlockData.data, 4096);
+											return 4096;
+										}
+									}
 								}
 							}
 						}
@@ -339,7 +386,7 @@ int fs_read( int inumber, char *data, int length, int offset )
 				}
 			}
 		}
-		return totbytes;
+		//return totbytes;
 
 	}
 	return 0;
