@@ -328,7 +328,7 @@ int fs_getsize( int inumber )
 int fs_read( int inumber, char *data, int length, int offset )
 {
 	if(ismounted == 1){
-		int totbytes = offset;
+		int totbytes = 0;
 		int isIndirect = 0;
 		int numIndirectPointers;
 		union fs_block block;
@@ -341,7 +341,29 @@ int fs_read( int inumber, char *data, int length, int offset )
 				for(currinode = 0; currinode < INODES_PER_BLOCK; currinode++){
 					if(currinode == inumber){
 						if(block.inode[currinode].isvalid == 1){
-							// Handle the Direct Pointers
+							int currinodeblock;
+							// looping through all of the 
+							for(currinodeblock = 0; currinodeblock < INODES_PER_BLOCK;){
+								if(offset > block.inode[currinode].size){
+									return totbytes;
+								}
+								union fs_block bufferBlock;
+								disk_read(block.inode[currinode].direct[currinodeblock], bufferBlock.data);
+								int currbyte;
+								for(currbyte = totbytes; currbyte < length - offset; currbyte++){
+									if(bufferBlock.data[currbyte+offset]){
+										data[currbyte] = bufferBlock.data[currbyte+offset];
+										if(currbyte + offset >= block.inode[currinode].size){
+											return currbyte;
+										} 
+									}
+									else{
+										return currbyte;
+									}
+								}
+
+							}
+							/* Handle the Direct Pointers
 							int numDirectPointers = block.inode[currinode].size/4096 + 1;
 							if(numDirectPointers > 5){
 								numIndirectPointers = numDirectPointers-POINTERS_PER_INODE;
@@ -366,14 +388,6 @@ int fs_read( int inumber, char *data, int length, int offset )
 										return 4096;
 									}
 								}
-								
-								/*
-								int currbyte;
-								for(currbyte = offset; currbyte < 1000; currbyte++){
-									data[totbytes] = bufferBlock.data[currbyte];
-									totbytes+=1;
-									return totbytes;
-								}*/
 							}
 							
 							
@@ -397,7 +411,7 @@ int fs_read( int inumber, char *data, int length, int offset )
 										}
 									}
 								}
-							}
+							}*/
 						}
 					}
 				}
