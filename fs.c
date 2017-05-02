@@ -279,13 +279,14 @@ int fs_delete( int inumber )
 							if(block.inode[currinode].indirect > 0){
 								union fs_block indirectblock;
 								disk_read(block.inode[currinode].indirect, indirectblock.data);
-								block.inode[currinode].indirect = 0;
+								// block.inode[currinode].indirect = 0;
 								int currpointer;
 								for(currpointer = 0; currpointer < POINTERS_PER_BLOCK; currpointer++){
 									freeblockbitmap[indirectblock.pointers[currpointer]] = 0;
 									indirectblock.pointers[currpointer] = 0;
-									// disk_write(block.inode[currinode].indirect, indirectblock.data);
 								}
+								disk_write(block.inode[currinode].indirect, indirectblock.data);
+								block.inode[currinode].indirect = 0;
 							}
 						}
 					}
