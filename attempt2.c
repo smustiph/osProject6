@@ -83,6 +83,7 @@ int fs_format()
 					}
 					// deleting indirect data blocks
 					if(oldBlock.inode[currinode].indirect > 0){
+						// oldBlock.inode[currinode].indirect = 0;
 						union fs_block indirectblock;
 						disk_read(oldBlock.inode[currinode].indirect, indirectblock.data);
 						oldBlock.inode[currinode].indirect = 0;
@@ -271,27 +272,42 @@ int fs_delete( int inumber )
 							block.inode[currinode].isvalid = 0;
 							int currinodeblock;
 							for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
+								if(block.inode[currinode].direct[currinodeblock] == 0){
+									continue;
+								}
 								freeblockbitmap[block.inode[currinode].direct[currinodeblock]] = 0; // free bitmap
 								block.inode[currinode].direct[currinodeblock] = 0; // free the direct block
 							}
+							// disk_write(currblock, block.data);
 							// free the indirect blocks
 							// deleting indirect data blocks
+							
+							
 							if(block.inode[currinode].indirect > 0){
 								union fs_block indirectblock;
 								disk_read(block.inode[currinode].indirect, indirectblock.data);
 								block.inode[currinode].indirect = 0;
 								int currpointer;
-								for(currpointer = 0; currpointer < POINTERS_PER_BLOCK; currpointer++){
-									freeblockbitmap[indirectblock.pointers[currpointer]] = 0;
-									indirectblock.pointers[currpointer] = 0;
-									// disk_write(block.inode[currinode].indirect, indirectblock.data);
+								for(currpointer = 1; currpointer < POINTERS_PER_BLOCK; currpointer++){
+									if(freeblockbitmap[indirectblock.pointers[currpointer]]){
+										//printf("Indirect Block Pointer\n");
+										// printf("%d\n",block.pointers[currpointer]);
+										freeblockbitmap[indirectblock.pointers[currpointer]] = 0; // free bitmap
+										//printf("After freeblockbitmap\n");
+										printf("currpointer: %d\n", currpointer);
+										indirectblock.pointers[currpointer] = 0;
+									}
 								}
+								disk_write(block.inode[currinode].indirect, indirectblock.data);
 							}
 						}
+						disk_write(currblock, block.data);
+						return 1;	
 					}
 				}
+				/*
 				disk_write(currblock, block.data);
-				return 1;
+				return 1;*/
 			}
 		}
 	}
@@ -366,13 +382,11 @@ int fs_read( int inumber, char *data, int length, int offset )
 									}
 								}
 								
-								/*
 								int currbyte;
 								for(currbyte = offset; currbyte < 1000; currbyte++){
 									data[totbytes] = bufferBlock.data[currbyte];
 									totbytes+=1;
-									return totbytes;
-								}*/
+								}
 							}
 							
 							
