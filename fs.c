@@ -398,6 +398,9 @@ int fs_read( int inumber, char *data, int length, int offset )
 			else{
 				lengthToCopy = bytesleft;
 			}
+			if(strlen(data) + lengthToCopy == length){
+				lengthToCopy-=1;
+			}
 			// printf("before diskread\n");
 			disk_read(currblocknum, bufferBlock.data);
 			// printf("before strncat\n");
