@@ -108,13 +108,9 @@ int fs_format()
 
 		// write the superblock to disk, will be the initial block
 		disk_write(0, newBlock.data);
-
-		// on success return 1
-		return 1;
 	}
 	else if(ismounted == 1){
-		printf("Failure: disk already mounted\n");
-		exit(1);
+		printf("Disk already mounted\n");
 	}
 	return 0;
 }
@@ -182,28 +178,33 @@ int fs_mount()
 
 	// check if the filesystem is present
 	if(block.super.magic == FS_MAGIC){
-		freeblockbitmap = malloc(sizeof(int *)*block.super.ninodes);
+		freeblockbitmap = calloc(block.super.nblocks, sizeof(int));
 		// go through each inode block and check every inode 1 if in use 0 otherwise
 		// if data block is 0 then it is not being used, anything else and it is being used
 		int currblock;
-		for(currblock = 1; currblock < block.super.nblocks; currblock++){
-			disk_read(currblock, block.data);
+		for(currblock = 1; currblock <= block.super.ninodeblocks; currblock++){
+			union fs_block tempBlock;
+			// printf("blocks: %d\n",  block.super.ninodeblocks);
+			// printf("InodeBlock = %d\n", currblock);
+			freeblockbitmap[currblock] = 1;
+			disk_read(currblock, tempBlock.data);
 			int currinode;
 			for(currinode = 1; currinode < INODES_PER_BLOCK; currinode++){
 				// check if inode is actually created
-				if(block.inode[currinode].isvalid == 1){
+				if(tempBlock.inode[currinode].isvalid == 1){
 					int currinodeblock;
 					for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
 						// if the current data block is not being used 
-						if(block.inode[currinode].direct[currinodeblock] == 0){
-							freeblockbitmap[block.inode[currinode].direct[currinodeblock]] = 0;
+						if(tempBlock.inode[currinode].direct[currinodeblock] == 0){
+							freeblockbitmap[tempBlock.inode[currinode].direct[currinodeblock]] = 0;
 							continue;
 						}
-						freeblockbitmap[block.inode[currinode].direct[currinodeblock]] = 1;
+						freeblockbitmap[tempBlock.inode[currinode].direct[currinodeblock]] = 1;
 					}
-					if(block.inode[currinode].indirect > 0){
+					if(tempBlock.inode[currinode].indirect > 0){
 						union fs_block indirectblock;
-						disk_read(block.inode[currinode].indirect, indirectblock.data);
+						freeblockbitmap[tempBlock.inode[currinode].indirect] = 1;
+						disk_read(tempBlock.inode[currinode].indirect, indirectblock.data);
 						int currpointer;
 						for(currpointer = 0; currpointer < POINTERS_PER_BLOCK; currpointer++){
 							if(indirectblock.pointers[currpointer] == 0){
@@ -215,19 +216,23 @@ int fs_mount()
 					}
 				}
 			}
+		// printf("currblock = %d ninodeblocks = %d\n", currblock, block.super.ninodeblocks);
 		}
-
-		ismounted = 1;
-		return ismounted;
 	}
-	return 0;
+	ismounted = 1;
+	/*
+	int i;
+	for(i = 0; i < block.super.nblocks; i++){
+		printf("Inodenumber %d: %d\n", i,freeblockbitmap[i]);
+	}*/
+	return ismounted;
 }
 
 // to run from here on out you must first mount the disk
 int fs_create()
 {
 	// check to see if it ismounted
-	if(ismounted==1){
+	if(ismounted){
 		union fs_block block;
 		disk_read(0,block.data);
 		if(block.super.magic == FS_MAGIC){
@@ -243,11 +248,20 @@ int fs_create()
 					// inode not created, so create it
 					block.inode[currinode].isvalid = 1;
 					block.inode[currinode].size = 0; // set the length to be 0
+					/* zeroing out direct blocks and indirect blocks */
+					int directblock;
+					for(directblock = 0; directblock < POINTERS_PER_INODE; directblock++){
+						block.inode[currinode].direct[directblock] = 0;
+					}
+					block.inode[currinode].indirect = 0;
 					disk_write(currblock, block.data);
 					return currinode;
 				}
 			}
 		}
+	}
+	else{
+		printf("Error: Disk not mounted\n");
 	}
 	return 0;
 }
@@ -255,7 +269,7 @@ int fs_create()
 
 int fs_delete( int inumber )
 {
-	if(ismounted == 1){
+	if(ismounted){
 		union fs_block block;
 		disk_read(0,block.data);
 		if(block.super.magic == FS_MAGIC){
@@ -296,6 +310,9 @@ int fs_delete( int inumber )
 			}
 		}
 	}
+	else{
+		printf("Error: Disk not mounted\n");
+	}
 	// check to see if it ismounted
 	return 0;
 }
@@ -303,7 +320,7 @@ int fs_delete( int inumber )
 int fs_getsize( int inumber )
 {
 	// check to if ismounted
-	if(ismounted == 1){
+	if(ismounted){
 		union fs_block block;
 		disk_read(0, block.data);
 		if(block.super.magic == FS_MAGIC){
@@ -322,12 +339,15 @@ int fs_getsize( int inumber )
 			}
 		}
 	}
+	else{
+		printf("Error: disk not mounted\n");
+	}
 	return -1;
 }
 
 int fs_read( int inumber, char *data, int length, int offset )
 {
-	if(ismounted == 1){
+	if(ismounted){
 		// overall inode
 		struct fs_inode masterinode;
 
@@ -423,13 +443,184 @@ int fs_read( int inumber, char *data, int length, int offset )
 			currblock+=1;
 		}
 		return actlength - bytesleft;
-
-
+	}
+	else{
+		printf("Error: disk not mounted\n");
 	}
 	return 0;
 }
 
+int findfreeblock(){
+	union fs_block block;
+	disk_read(0, block.data);
+	int i;
+	for(i = 1; i < block.super.nblocks; i++){
+		if(freeblockbitmap[i] == 0){
+			// printf("free = %d\n", i);
+			/* updating the bitmap */
+			freeblockbitmap[i] = 1;
+			return i;
+		}
+	}
+	/* no free block found */
+	return -1;
+}
+
+int findfreeindirectblock(struct fs_inode *inode){
+	int currblocknum = findfreeblock();
+	if(currblocknum == -1){
+		return -1;
+	}
+	inode->indirect = currblocknum;
+	union fs_block block;
+	disk_read(inode->indirect, block.data);
+	int currpointer;
+	for(currpointer = 0; currpointer < POINTERS_PER_BLOCK; currpointer++){
+		/* make sure no garbage values contained */
+		block.pointers[currpointer] = 0;
+	}
+	disk_write(inode->indirect, block.data);
+	return inode->indirect;
+}
+
 int fs_write( int inumber, const char *data, int length, int offset )
-{
+{	
+	if(ismounted){
+		// overall inode
+		struct fs_inode masterinode;
+
+		/* Loading the iNode */
+		int inodeblock = inumber/INODES_PER_BLOCK + 1;
+		int inodenum = inumber%INODES_PER_BLOCK;
+		// printf("%d\n", inodenum);
+		union fs_block tempBlock;
+		disk_read(inodeblock, tempBlock.data);
+		// printf("Disk read done\n");
+		memcpy(&masterinode, &tempBlock.inode[inodenum], sizeof(struct fs_inode));
+		// printf("Mem copy done\n");
+
+		// check if the offset is greater than the size of the inode if so then break
+		if(offset > masterinode.size){
+			return 0;
+		}
+		// printf("past check\n");
+
+		/* Computing Length of Bytes We are Going to Read */
+		int actlength;
+		// iNode size greater than what we want to read
+		if(length + offset > masterinode.size){
+			actlength = masterinode.size - offset;
+			// printf("actlength1: %d\n", masterinode.size-offset);
+		}
+		else{
+			actlength = length; 
+			// printf("actlength2: %d\n", length);
+		}
+		int bytesleft = length;
+
+		// check if offset greater than size of master inode
+		int currblock = offset / DISK_BLOCK_SIZE; // current block
+		int curroffset = offset % DISK_BLOCK_SIZE; // offset within the given block
+		int currblocknum; // block number that is pointed to
+
+		int currindirectblock;
+
+		while(bytesleft > 0){
+			if(currblock > POINTERS_PER_INODE + POINTERS_PER_BLOCK){
+				break;
+			}/*
+			if(strlen(data) > length){
+				return 0;
+			}*/
+			if(currblock >= POINTERS_PER_INODE){
+				// printf("in if\n");
+				/* taking care of indirect block */
+				if(masterinode.indirect == 0){
+					currindirectblock = findfreeindirectblock(&masterinode);
+				}
+				else{
+					currindirectblock = masterinode.indirect;
+				}
+				if(currindirectblock == -1){
+					printf("No free indirect blocks\n");
+					return 0;
+				}
+
+				union fs_block indirectBufferBlock;
+				disk_read(currindirectblock, indirectBufferBlock.data);
+				/* find the offset */
+				currblocknum = indirectBufferBlock.pointers[currblock - POINTERS_PER_INODE];
+
+				/* check for free block for indirect*/
+				if(currblocknum == 0){
+					currblocknum = findfreeblock();
+					if(currblocknum != -1){
+						indirectBufferBlock.pointers[currblock - POINTERS_PER_INODE] = currblocknum;
+						disk_write(currindirectblock, indirectBufferBlock.data);
+					}
+				}
+			}
+			/* Direct Blocks */
+			else{
+				currblocknum = masterinode.direct[currblock];
+				/* check for free block */
+				if(currblocknum == 0){
+					currblocknum = findfreeblock();
+					if(currblocknum != -1){
+						masterinode.direct[currblock] = currblocknum;
+					}
+				}
+				// currblocknum = masterinode.direct[currblock];
+			}
+			if(currblocknum == -1){
+				printf("Error: No Valid Block Available\n");
+				exit(1);
+			}
+
+			/* Reading Data */
+			// printf("reading data\n");
+			union fs_block bufferBlock;
+			int bufferLength = DISK_BLOCK_SIZE - curroffset;
+			int lengthToCopy;
+			if(bytesleft > bufferLength){
+				lengthToCopy = bufferLength;
+			}
+			else{
+				lengthToCopy = bytesleft;
+			}
+			if(strlen(data) + lengthToCopy == length){
+				lengthToCopy-=1;
+			}
+			// printf("before diskread\n");
+			disk_read(currblocknum, bufferBlock.data);
+			// printf("lengthToCopy: %d\n", lengthToCopy);
+			strncpy(bufferBlock.data + curroffset, data, lengthToCopy);
+			data+=lengthToCopy;
+			// printf("Currblocknum: %d\n", currblocknum);
+			disk_write(currblocknum, bufferBlock.data);
+
+			// printf("after strncat\n");
+			if(lengthToCopy < bufferLength){
+				bytesleft = 0;
+			}
+			else{
+				bytesleft = bytesleft - bufferLength;
+			}
+			// printf("past getting bytesleft\n");
+
+			curroffset = 0;
+			currblock+=1;
+		}
+		// end of loop should be here
+		masterinode.size += length - bytesleft;
+		disk_read(inodeblock, tempBlock.data);
+		// printf("Disk read done\n");
+		memcpy(&tempBlock.inode[inodenum], &masterinode, sizeof(struct fs_inode));
+		disk_write(inodeblock, tempBlock.data);
+		return length - bytesleft;
+	}
+	else{
+		printf("Error Disk not Mounted\n");
+	}
 	return 0;
 }
