@@ -62,6 +62,26 @@ union fs_block {
 	Note that formatting a filesystem does not cause it to be mounted. 
 	Also, an attempt to format an already-mounted disk should do nothing and return failure.
 */
+int checkinode(int inumber){
+	union fs_block block;
+	disk_read(0,block.data);
+	int currblock;
+	for(currblock = 1; currblock < block.super.nblocks; currblock++){
+		disk_read(currblock, block.data);
+		int currinode;
+		for(currinode = 1; currinode < INODES_PER_BLOCK; currinode++){
+			// check if inumber is same as the given inode
+			if(currinode == inumber){
+				// check if valid 
+				if(block.inode[currinode].isvalid == 1){
+					return 1;
+				}
+			}
+		}
+	}
+	return 0;
+}
+
 int fs_format()
 {
 	if(ismounted == 0){
@@ -270,6 +290,10 @@ int fs_create()
 int fs_delete( int inumber )
 {
 	if(ismounted){
+		if(!(checkinode(inumber))){
+			printf("Error invalid inumber\n");
+			return 0;
+		}
 		union fs_block block;
 		disk_read(0,block.data);
 		if(block.super.magic == FS_MAGIC){
@@ -321,6 +345,10 @@ int fs_getsize( int inumber )
 {
 	// check to if ismounted
 	if(ismounted){
+		if(!(checkinode(inumber))){
+			printf("Error: invalid inumber\n");
+			return 0;
+		}
 		union fs_block block;
 		disk_read(0, block.data);
 		if(block.super.magic == FS_MAGIC){
@@ -348,6 +376,10 @@ int fs_getsize( int inumber )
 int fs_read( int inumber, char *data, int length, int offset )
 {
 	if(ismounted){
+		if(!(checkinode(inumber))){
+			printf("Error: invalid inumber\n");
+			return 0;
+		}
 		// overall inode
 		struct fs_inode masterinode;
 
@@ -486,6 +518,12 @@ int findfreeindirectblock(struct fs_inode *inode){
 int fs_write( int inumber, const char *data, int length, int offset )
 {	
 	if(ismounted){
+		// check inode
+		if(!(checkinode(inumber))){
+			printf("Error: invalid inumber\n");
+			return 0;
+		}
+
 		// overall inode
 		struct fs_inode masterinode;
 
