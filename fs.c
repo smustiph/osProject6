@@ -574,7 +574,7 @@ int fs_write( int inumber, const char *data, int length, int offset )
 			}
 			if(currblocknum == -1){
 				printf("Error: No Valid Block Available\n");
-				exit(1);
+				return 0;
 			}
 
 			/* Reading Data */
