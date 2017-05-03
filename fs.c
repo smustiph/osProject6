@@ -328,96 +328,99 @@ int fs_getsize( int inumber )
 int fs_read( int inumber, char *data, int length, int offset )
 {
 	if(ismounted == 1){
-		int totbytes = 0;
-		int isIndirect = 0;
-		int numIndirectPointers;
-		union fs_block block;
-		disk_read(0, block.data);
-		if(block.super.magic == FS_MAGIC){
-			int currblock;
-			for(currblock = 1; currblock < block.super.nblocks; currblock++){
-				disk_read(currblock, block.data);
-				int currinode;
-				for(currinode = 0; currinode < INODES_PER_BLOCK; currinode++){
-					if(currinode == inumber){
-						if(block.inode[currinode].isvalid == 1){
-							int currinodeblock;
-							// looping through all of the 
-							for(currinodeblock = 0; currinodeblock < INODES_PER_BLOCK;){
-								if(offset > block.inode[currinode].size){
-									return totbytes;
-								}
-								union fs_block bufferBlock;
-								disk_read(block.inode[currinode].direct[currinodeblock], bufferBlock.data);
-								int currbyte;
-								for(currbyte = totbytes; currbyte < length - offset; currbyte++){
-									if(bufferBlock.data[currbyte+offset]){
-										data[currbyte] = bufferBlock.data[currbyte+offset];
-										if(currbyte + offset >= block.inode[currinode].size){
-											return currbyte;
-										} 
-									}
-									else{
-										return currbyte;
-									}
-								}
+		// overall inode
+		struct fs_inode masterinode;
 
-							}
-							/* Handle the Direct Pointers
-							int numDirectPointers = block.inode[currinode].size/4096 + 1;
-							if(numDirectPointers > 5){
-								numIndirectPointers = numDirectPointers-POINTERS_PER_INODE;
-								numDirectPointers = POINTERS_PER_INODE;
-								isIndirect = 1;
-							}
-							int currinodeblock;
-							for(currinodeblock = 0; currinodeblock < POINTERS_PER_INODE; currinodeblock++){
-								union fs_block bufferBlock;
-								disk_read(block.inode[currinode].direct[currinodeblock], bufferBlock.data);
-								if(length > totbytes){
-									if(block.inode[currinode].size < 4096){
-										strncpy(data, bufferBlock.data, block.inode[currinode].size);
-										return block.inode[currinode].size;
-									}
-									else if(currinodeblock == POINTERS_PER_INODE-1){
-										strncpy(data, bufferBlock.data, block.inode[currinode].size-4096); 
-										return block.inode[currinode].size-4096;
-									}
-									else{
-										strncpy(data, bufferBlock.data, 4096);
-										return 4096;
-									}
-								}
-							}
-							
-							
-							if(isIndirect == 1){
-								//printf("Is in indirect\n");
-								union fs_block indirectBufferBlock;
-								disk_read(block.inode[currinode].indirect, indirectBufferBlock.data);
-								int currpointer;
-								for(currpointer = 0; currpointer < numIndirectPointers; currpointer++){
-									union fs_block indirectBufferBlockData;
-									disk_read(indirectBufferBlock.pointers[currpointer], indirectBufferBlockData.data);
+		// resetting the data
+		data[0] = '\0';
 
-									if(length > totbytes){
-										if(currinodeblock == numIndirectPointers-1){
-											strncpy(data, indirectBufferBlockData.data, block.inode[currinode].size-(POINTERS_PER_INODE*4096)-4096);
-											return block.inode[currinode].size-(POINTERS_PER_INODE*4096)-4096;
-										}
-										else{
-											strncpy(data, indirectBufferBlockData.data, 4096);
-											return 4096;
-										}
-									}
-								}
-							}*/
-						}
-					}
-				}
-			}
+		/* Loading the iNode */
+		int inodeblock = inumber/INODES_PER_BLOCK + 1;
+		int inodenum = inumber%INODES_PER_BLOCK;
+		// printf("%d\n", inodenum);
+		union fs_block tempBlock;
+		disk_read(inodeblock, tempBlock.data);
+		// printf("Disk read done\n");
+		memcpy(&masterinode, &tempBlock.inode[inodenum], sizeof(struct fs_inode));
+		// printf("Mem copy done\n");
+
+		// check if the offset is greater than the size of the inode if so then break
+		if(offset > masterinode.size){
+			return 0;
 		}
-		//return totbytes;
+		// printf("past check\n");
+
+		/* Computing Length of Bytes We are Going to Read */
+		int actlength;
+		// iNode size greater than what we want to read
+		if(length + offset > masterinode.size){
+			actlength = masterinode.size - offset; 
+		}
+		else{
+			actlength = length; 
+		}
+		int bytesleft = actlength;
+
+		// check if offset greater than size of master inode
+		int currblock = offset / DISK_BLOCK_SIZE; // current block
+		int curroffset = offset % DISK_BLOCK_SIZE; // offset within the given block
+		int currblocknum; // block number that is pointed to
+
+		// loop through the data
+		while(bytesleft > 0){
+			if(currblock > POINTERS_PER_INODE + POINTERS_PER_BLOCK){
+				break;
+			}
+			if(strlen(data) > length){
+				return 0;
+			}
+			if(currblock >= POINTERS_PER_INODE){
+				// printf("in if\n");
+				/* taking care of indirect block */
+				int currindirectblock = masterinode.indirect;
+				union fs_block indirectBufferBlock;
+				disk_read(currindirectblock, indirectBufferBlock.data);
+				/* find the offset */
+				currblocknum = indirectBufferBlock.pointers[currblock - POINTERS_PER_INODE];
+			}
+			else{
+				currblocknum = masterinode.direct[currblock];
+			}
+
+			/* Reading Data */
+			// printf("reading data\n");
+			union fs_block bufferBlock;
+			int bufferLength = DISK_BLOCK_SIZE - curroffset;
+			int lengthToCopy;
+			if(bytesleft > bufferLength){
+				lengthToCopy = bufferLength;
+			}
+			else{
+				lengthToCopy = bytesleft;
+			}
+			// printf("before diskread\n");
+			disk_read(currblocknum, bufferBlock.data);
+			// printf("before strncat\n");
+			// printf("%d %d", curroffset, lengthToCopy);
+			// printf("Sum: %d\n", (curroffset + lengthToCopy));
+			// printf("poop\n");
+			// printf("LENGTH TO COPY %d", lengthToCopy);
+			// printf("%lu %lu %d", strlen(data), strlen(bufferBlock.data + curroffset), lengthToCopy);
+			strncat(data, bufferBlock.data + curroffset, lengthToCopy);
+			// printf("after strncat\n");
+			if(lengthToCopy < bufferLength){
+				bytesleft = 0;
+			}
+			else{
+				bytesleft = bytesleft - bufferLength;
+			}
+			// printf("past getting bytesleft\n");
+
+			curroffset = 0;
+			currblock+=1;
+		}
+		return actlength - bytesleft;
+
 
 	}
 	return 0;
